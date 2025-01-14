@@ -1,6 +1,5 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                            QLineEdit, QPushButton, QTextEdit, QLabel)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QTextEdit, QLabel)
 from PyQt5.QtCore import Qt
 import requests
 import urllib.parse
@@ -134,51 +133,51 @@ class BuildingInfoWindow(QMainWindow):
         self.initUI()
         
     def initUI(self):
+        # Main widget and layout
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        layout = QVBoxLayout(main_widget)
+        
+        # Input area
+        input_layout = QHBoxLayout()
+        self.pnu_input = QLineEdit()
+        self.pnu_input.setPlaceholderText("PNU를 입력하세요 (19자리)")
+        self.search_btn = QPushButton("검색")
+        self.search_btn.clicked.connect(self.search_building)
+        
+        input_layout.addWidget(self.pnu_input)
+        input_layout.addWidget(self.search_btn)
+        
+        # Result area
+        self.result_view = QTextEdit()
+        self.result_view.setReadOnly(True)
+        
+        # Add widgets to main layout
+        layout.addLayout(input_layout)
+        layout.addWidget(self.result_view)
+        
+        # Window settings
         self.setWindowTitle('건축물대장 조회')
         self.setGeometry(300, 300, 800, 600)
         
-        # 중앙 위젯 생성
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-        
-        # PNU 입력 필드
-        pnu_label = QLabel('PNU 입력 (19자리):')
-        self.pnu_input = QLineEdit()
-        self.pnu_input.setPlaceholderText('19자리 PNU를 입력하세요')
-        
-        # 조회 버튼
-        search_button = QPushButton('조회하기')
-        search_button.clicked.connect(self.search_building_info)
-        
-        # 결과 표시 영역
-        self.result_text = QTextEdit()
-        self.result_text.setReadOnly(True)
-        
-        # 레이아웃에 위젯 추가
-        layout.addWidget(pnu_label)
-        layout.addWidget(self.pnu_input)
-        layout.addWidget(search_button)
-        layout.addWidget(self.result_text)
-
-    def search_building_info(self):
+    def search_building(self):
         try:
             pnu = self.pnu_input.text().strip()
             
-            # PNU 유효성 검사
+            # Validate PNU
             if len(pnu) != 19:
-                self.result_text.setText("❌ 오류: PNU는 반드시 19자리여야 합니다.")
-                return
-                
-            if not pnu.isdigit():
-                self.result_text.setText("❌ 오류: PNU는 숫자로만 구성되어야 합니다.")
-                return
+                raise ValueError("PNU는 반드시 19자리여야 합니다.")
             
-            # 서비스 키 디코딩
+            if not pnu.isdigit():
+                raise ValueError("PNU는 숫자로만 구성되어야 합니다.")
+            
+            # Parse PNU and get parameters
+            params = parse_pnu(pnu)
+            
+            # Decode the service key
             service_key = urllib.parse.unquote("Lvn%2FX9ciaH3OcErj46QABbDpndkMA%2FBR6ZJmLMlTOO1No1vGocwgMhcp%2BVKl%2BShi8et1lD%2BVhhVAdQNi%2BtkKGw%3D%3D")
             
-            # PNU 파싱 및 API 호출
-            params = parse_pnu(pnu)
+            # Fetch building information
             building_info = fetch_building_info(
                 service_key=service_key,
                 **params,
@@ -186,32 +185,40 @@ class BuildingInfoWindow(QMainWindow):
                 page=1
             )
             
-            # 결과 포맷팅
-            result_text = f"=== 건축물대장 정보 ===\n"
-            result_text += f"▶ 조회 파라미터:\n"
-            result_text += f"  - 시군구코드: {params['sigungu_cd']}\n"
-            result_text += f"  - 법정동코드: {params['bjdong_cd']}\n"
-            result_text += f"  - 대지구분: {params['plat_gb_cd']}\n"
-            result_text += f"  - 본번: {params['bun']}\n"
-            result_text += f"  - 부번: {params['ji']}\n\n"
+            # Format and display results
+            self.display_results(params, building_info)
             
-            # API 응답 처리
-            items = building_info['response']['body']['items']['item']
-            total_count = building_info['response']['body']['totalCount']
-            
-            result_text += f"🏢 총 {total_count}개의 건축물이 검색되었습니다.\n\n"
-            
-            for item in items:
-                result_text += format_building_info(item)
-                result_text += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            
-            self.result_text.setText(result_text)
-            
+        except ValueError as e:
+            self.result_view.setText(f"❌ 오류: {e}")
         except Exception as e:
-            self.result_text.setText(f"❌ 오류가 발생했습니다: {str(e)}")
+            self.result_view.setText(f"❌ 예상치 못한 오류가 발생했습니다: {e}")
+    
+    def display_results(self, params, building_info):
+        # Format header information
+        header = f"""=== 건축물대장 정보 ===
+▶ 조회 파라미터:
+  - 시군구코드: {params['sigungu_cd']}
+  - 법정동코드: {params['bjdong_cd']}
+  - 대지구분: {params['plat_gb_cd']}
+  - 본번: {params['bun']}
+  - 부번: {params['ji']}
 
-# 메인 실행 부분 수정
-if __name__ == "__main__":
+▶ API 응답:"""
+        
+        # Get items from response
+        items = building_info['response']['body']['items']['item']
+        total_count = building_info['response']['body']['totalCount']
+        
+        # Format building information
+        result_text = f"{header}\n\n🏢 총 {total_count}개의 건축물이 검색되었습니다.\n"
+        
+        for item in items:
+            result_text += format_building_info(item)
+            result_text += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        
+        self.result_view.setText(result_text)
+
+if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = BuildingInfoWindow()
     window.show()
